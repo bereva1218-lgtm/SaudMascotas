@@ -1,0 +1,59 @@
+// Prisma schema for pet health backend
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id       Int      @id @default(autoincrement())
+  email    String   @unique
+  password String
+  name     String
+  role     String   @default("cuidador")
+  pets     Pet[]
+}
+
+model Pet {
+  id        Int       @id @default(autoincrement())
+  name      String
+  breed     String
+  age       Int
+  weight    Int
+  avatar    String
+  condition String?
+  status    String
+  owner     User?     @relation(fields: [ownerId], references: [id])
+  ownerId   Int?
+  logs      DailyLog[]
+  alerts    Alert[]
+}
+
+model DailyLog {
+  id         Int    @id @default(autoincrement())
+  pet        Pet    @relation(fields: [petId], references: [id])
+  petId      Int
+  date       String
+  appetite   Int
+  energy     Int
+  mood       Int
+  waterIntake Int
+  sleep      Int
+  mobility   Int
+  notes      String
+  images     String
+}
+
+model Alert {
+  id        Int    @id @default(autoincrement())
+  pet       Pet    @relation(fields: [petId], references: [id])
+  petId     Int
+  type      String
+  message   String
+  date      String
+  read      Boolean @default(false)
+}
