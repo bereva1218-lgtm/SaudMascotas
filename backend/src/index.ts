@@ -120,8 +120,19 @@ app.get("/pets/:id", requireAuth, async (req, res) => {
 });
 
 app.post("/pets", requireAuth, async (req, res) => {
-  const pet = await prisma.pet.create({ data: req.body });
+  const { id, ...petData } = req.body;
+  const pet = await prisma.pet.create({ data: petData });
   res.status(201).json({ ...pet, id: String(pet.id), ownerId: pet.ownerId ? String(pet.ownerId) : null });
+});
+
+app.patch("/pets/:id", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { id: bodyId, ...data } = req.body;
+  const pet = await prisma.pet.update({
+    where: { id: Number(id) },
+    data,
+  });
+  res.json({ ...pet, id: String(pet.id), ownerId: pet.ownerId ? String(pet.ownerId) : null });
 });
 
 app.get("/alerts", requireAuth, async (req, res) => {
@@ -151,7 +162,31 @@ app.get("/logs", requireAuth, async (req, res) => {
 
 app.post("/logs", requireAuth, async (req, res) => {
   // convert images array to string for storage
-  const data = { ...req.body, images: JSON.stringify(req.body.images) };
+  const {
+    id,
+    petId,
+    appetite,
+    energy,
+    mood,
+    waterIntake,
+    sleep,
+    mobility,
+    images,
+    ...rest
+  } = req.body;
+
+  const data = {
+    ...rest,
+    petId: Number(petId),
+    appetite: Number(appetite),
+    energy: Number(energy),
+    mood: Number(mood),
+    waterIntake: Number(waterIntake),
+    sleep: Number(sleep),
+    mobility: Number(mobility),
+    images: JSON.stringify(images ?? []),
+  };
+
   const log = await prisma.dailyLog.create({ data });
   res.status(201).json({ ...log, id: String(log.id), petId: String(log.petId), images: JSON.parse(log.images) });
 });

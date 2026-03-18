@@ -3,10 +3,16 @@ import { Pet, DailyLog, Alert, User } from "./types";
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem("auth")
-    ? JSON.parse(localStorage.getItem("auth") as string).token
-    : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  try {
+    const stored = localStorage.getItem("auth");
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    if (!parsed || !parsed.token) return {};
+    return { Authorization: `Bearer ${parsed.token}` };
+  } catch (e) {
+    console.warn("Failed to parse auth from localStorage", e);
+    return {};
+  }
 }
 
 async function fetchJson<T>(input: RequestInfo, init: RequestInit = {}): Promise<T> {
@@ -40,6 +46,8 @@ export const getPets = () => fetchJson<Pet[]>(`${BASE_URL}/pets`);
 export const getPet = (id: string) => fetchJson<Pet>(`${BASE_URL}/pets/${id}`);
 export const createPet = (pet: Pet) =>
   fetchJson<Pet>(`${BASE_URL}/pets`, { method: "POST", body: JSON.stringify(pet), headers: { "Content-Type": "application/json" } });
+export const updatePet = (id: string, patch: Partial<Pet>) =>
+  fetchJson<Pet>(`${BASE_URL}/pets/${id}`, { method: "PATCH", body: JSON.stringify(patch), headers: { "Content-Type": "application/json" } });
 
 export const getAlerts = () => fetchJson<Alert[]>(`${BASE_URL}/alerts`);
 export const getAlert = (id: string) => fetchJson<Alert>(`${BASE_URL}/alerts/${id}`);

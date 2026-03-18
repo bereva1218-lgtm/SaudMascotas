@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Pet, DailyLog } from "@/lib/types";
-import { getPets, createLog } from "@/lib/api";
+import { getPets, createLog, updatePet } from "@/lib/api";
 import MetricSlider from "@/components/MetricSlider";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,9 +32,17 @@ const DailyLogPage = () => {
     toast.info("Imagen adjuntada (simulado)");
   };
 
+  const computeStatus = (values: Record<string, number>) => {
+    const minValue = Math.min(...Object.values(values));
+    if (minValue <= 2) return "alert" as const;
+    if (minValue <= 3) return "observation" as const;
+    return "stable" as const;
+  };
+
   const handleSubmit = () => {
     const pet = pets.find((p) => p.id === selectedPet);
     if (!pet) return;
+
     const log: DailyLog = {
       id: `log-${Date.now()}`,
       petId: pet.id,
@@ -43,19 +51,36 @@ const DailyLogPage = () => {
       notes,
       images,
     };
+
+    const newStatus = computeStatus(values);
+
     createLog(log)
       .then(() => {
         toast.success("Registro diario guardado exitosamente", {
           description: `Datos registrados para ${pet.name}`,
         });
+
+        // Si cambió el estado de la mascota, actualizamos en backend y UI
+        if (newStatus !== pet.status) {
+          updatePet(pet.id, { status: newStatus })
+            .then((updated) => {
+              setPets((prev) => prev.map((p) => (p.id === pet.id ? updated : p)));
+              if (selectedPet === pet.id) setSelectedPet(updated.id);
+            })
+            .catch((e) => {
+              console.error("failed to update pet status", e);
+              toast.error("No se pudo actualizar el estado de la mascota");
+            });
+        }
+
         // Reset
         setValues({ appetite: 3, energy: 3, mood: 3, waterIntake: 3, sleep: 3, mobility: 3 });
         setNotes("");
         setImages([]);
       })
-      .catch((e) => {
+      .catch((e: any) => {
         console.error("log save failed", e);
-        toast.error("Falló al guardar el registro");
+        toast.error(e?.message || "Falló al guardar el registro");
       });
   };
 
