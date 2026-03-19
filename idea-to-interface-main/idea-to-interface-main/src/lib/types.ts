@@ -1,6 +1,6 @@
 import { Heart, Activity, Droplets, Moon, Utensils, Footprints, Smile } from "lucide-react";
 
-export type HealthStatus = "stable" | "observation" | "alert";
+export type HealthStatus = "stable" | "observation" | "alert" | "alerta";
 
 export interface Pet {
   id: string;
@@ -60,6 +60,13 @@ export const STATUS_CONFIG: Record<HealthStatus, { label: string; color: string;
     dotClass: "bg-status-observation",
   },
   alert: {
+    label: "Alerta",
+    color: "status-alert",
+    bgClass: "bg-status-alert/10",
+    textClass: "text-status-alert",
+    dotClass: "bg-status-alert",
+  },
+  alerta: {
     label: "Alerta",
     color: "status-alert",
     bgClass: "bg-status-alert/10",
