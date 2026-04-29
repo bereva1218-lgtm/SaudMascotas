@@ -24,6 +24,10 @@ will be created automatically the first time the server runs.
 The database file (`dev.db`) is stored in `backend/prisma` and persists
 between restarts.
 
+The backend also supports AI-generated pet care recommendations via a new
+PATCH endpoint. To enable it, set `OPENAI_API_KEY` in the environment or use
+an `.env` file.
+
 ```bash
 # optionally open a REPL to inspect data
 npx prisma studio
@@ -49,6 +53,8 @@ npm start
 - `GET /pets` – list all pets
 - `GET /pets/:id` – single pet
 - `POST /pets` – add a pet (JSON body)
+- `PATCH /pets/:id` – update pet fields
+- `PATCH /pets/:id/recommendation` – generate an AI care recommendation and update the pet condition
 - `GET /alerts` – list alerts
 - `GET /alerts/:id` – single alert
 - `PUT /alerts/:id/read` – mark alert read

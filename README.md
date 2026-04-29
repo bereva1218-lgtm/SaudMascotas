@@ -106,3 +106,20 @@ npm → Gestión de paquetes
 
 Git → Control de versiones
 
+## Ejecución con Docker Compose
+
+Este proyecto ya cuenta con `docker-compose.yml` para levantar el backend y el frontend en contenedores.
+
+1. Copia `.env.example` a `.env` en la raíz del proyecto.
+2. Agrega tu clave de OpenAI en `OPENAI_API_KEY`.
+3. Ejecuta:
+
+```bash
+docker-compose up --build
+```
+
+- El backend quedará disponible en `http://localhost:4000`
+- El frontend quedará disponible en `http://localhost:8080`
+
+El servicio de frontend ya está configurado para apuntar al backend por su nombre de servicio `http://backend:4000` dentro de Docker.
+

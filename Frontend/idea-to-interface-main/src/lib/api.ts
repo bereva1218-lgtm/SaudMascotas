@@ -44,10 +44,22 @@ export const register = (data: { email: string; password: string; name: string; 
 
 export const getPets = () => fetchJson<Pet[]>(`${BASE_URL}/pets`);
 export const getPet = (id: string) => fetchJson<Pet>(`${BASE_URL}/pets/${id}`);
-export const createPet = (pet: Pet) =>
+export const createPet = (pet: Omit<Pet, "id">) =>
   fetchJson<Pet>(`${BASE_URL}/pets`, { method: "POST", body: JSON.stringify(pet), headers: { "Content-Type": "application/json" } });
 export const updatePet = (id: string, patch: Partial<Pet>) =>
   fetchJson<Pet>(`${BASE_URL}/pets/${id}`, { method: "PATCH", body: JSON.stringify(patch), headers: { "Content-Type": "application/json" } });
+export const requestPetRecommendation = (id: string) =>
+  fetchJson<Pet & { advice: string }>(`${BASE_URL}/pets/${id}/recommendation`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+  });
+export const deletePet = async (id: string) => {
+  const res = await fetch(`${BASE_URL}/pets/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Request failed ${res.status}: ${text}`);
+  }
+};
 
 export const getAlerts = () => fetchJson<Alert[]>(`${BASE_URL}/alerts`);
 export const getAlert = (id: string) => fetchJson<Alert>(`${BASE_URL}/alerts/${id}`);

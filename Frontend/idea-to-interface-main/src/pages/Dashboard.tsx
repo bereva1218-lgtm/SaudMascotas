@@ -73,10 +73,12 @@ const Dashboard = () => {
         </div>
       </section>
 
-      {/* Último registro - Max */}
-      {latestLog && (
+      {/* Último registro */}
+      {latestLog && pets.find((p) => p.id === latestLog.petId) && (
         <section>
-          <h2 className="text-lg font-semibold mb-3">Último registro de Max</h2>
+          <h2 className="text-lg font-semibold mb-3">
+            Último registro de {pets.find((p) => p.id === latestLog.petId)?.name}
+          </h2>
           <Card className="p-5 border-border/50 shadow-card">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {metricKeys.map((key) => {
