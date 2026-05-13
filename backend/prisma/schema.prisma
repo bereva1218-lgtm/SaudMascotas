@@ -36,7 +36,7 @@ model Pet {
 
 model DailyLog {
   id         Int    @id @default(autoincrement())
-  pet        Pet    @relation(fields: [petId], references: [id], onDelete: Cascade)
+  pet        Pet    @relation(fields: [petId], references: [id])
   petId      Int
   date       String
   appetite   Int
@@ -51,7 +51,7 @@ model DailyLog {
 
 model Alert {
   id        Int    @id @default(autoincrement())
-  pet       Pet    @relation(fields: [petId], references: [id], onDelete: Cascade)
+  pet       Pet    @relation(fields: [petId], references: [id])
   petId     Int
   type      String
   message   String

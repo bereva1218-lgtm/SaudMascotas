@@ -1,10 +1,7 @@
-import { Agent, run } from "@openai/agents";
+import OpenAI from "openai";
 
-const agent = new Agent({
-  name: "Pet care recommendation agent",
-  instructions:
-    "Analiza los datos de la mascota y su último registro de salud. Devuelve solo JSON válido con estas claves: recommendedCondition y careAdvice. recommendedCondition debe ser una frase corta en español que describa el estado actual de la mascota. careAdvice debe ser un párrafo corto con recomendaciones prácticas de cuidado.",
-  model: "gpt-4o-mini",
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 export interface PetRecommendationRequest {
@@ -67,29 +64,59 @@ export async function generatePetRecommendation(
       ]
     : ["No hay registro de salud reciente disponible."];
 
-  const prompt = `Analiza estos datos de mascota y su último registro de salud. Responde solo con JSON válido usando las claves exactas recommendedCondition y careAdvice. ${petInfoLines.join("\n")}\n${logLines.join("\n")}`;
-
-  const result = await run(agent, prompt);
-  const rawOutput = (result.finalOutput || "").trim();
+  const prompt = `Analiza estos datos de mascota y su último registro de salud. Responde SOLO con JSON válido usando las claves exactas "recommendedCondition" y "careAdvice", sin texto adicional. ${petInfoLines.join("\n")}\n${logLines.join("\n")}`;
 
   try {
-    return JSON.parse(rawOutput) as PetRecommendationResponse;
-  } catch (error) {
-    // Intenta extraer JSON de markdown code blocks (```json ... ```)
-    let jsonMatch = rawOutput.match(/```json\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[1].trim()) as PetRecommendationResponse;
-      } catch (e) {
-        // Continúa intentando otras formas
+    const result = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Eres un asistente veterinario especializado en perros mayores. Analiza los datos y devuelve SOLO un JSON válido con las claves 'recommendedCondition' (una frase corta en español describiendo el estado) y 'careAdvice' (un párrafo con recomendaciones prácticas). No incluyas markdown ni explicaciones.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.7,
+    });
+
+    const rawOutput = (result.choices[0]?.message?.content || "").trim();
+    console.log("[AI] Respuesta de OpenAI:", rawOutput);
+
+    try {
+      return JSON.parse(rawOutput) as PetRecommendationResponse;
+    } catch (parseError) {
+      console.log("[AI] Error al parsear JSON directo, intentando extraer...");
+
+      let jsonMatch = rawOutput.match(/```json\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1].trim()) as PetRecommendationResponse;
+          console.log("[AI] JSON extraído correctamente de markdown");
+          return parsed;
+        } catch (e) {
+          console.log("[AI] Error al parsear JSON de markdown:", e);
+        }
       }
-    }
-    
-    // Intenta extraer cualquier objeto JSON
-    jsonMatch = rawOutput.match(/\{[\s\S]*\}$/);
-    if (!jsonMatch) {
+
+      jsonMatch = rawOutput.match(/\{[\s\S]*\}$/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]) as PetRecommendationResponse;
+          console.log("[AI] JSON extraído correctamente del texto");
+          return parsed;
+        } catch (e) {
+          console.log("[AI] Error al parsear JSON del texto:", e);
+        }
+      }
+
       throw new Error(`Respuesta no válida de OpenAI: ${rawOutput}`);
     }
-    return JSON.parse(jsonMatch[0]) as PetRecommendationResponse;
+  } catch (error) {
+    console.error("[AI] Error al generar recomendación:", error);
+    throw error;
   }
 }

@@ -1,13 +1,15 @@
+import dotenv from "dotenv";
+
+// Cargar variables de entorno ANTES de cualquier otra importación
+dotenv.config();
+
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
-import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import prisma from "./prisma";
 import { generatePetRecommendation } from "./openai";
 import "express-async-errors";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;

@@ -22,7 +22,7 @@ RUN npx prisma db push
 
 # Build TypeScript
 RUN npm run build
-#comit porque si
+
 # Runtime image
 FROM node:20-alpine
 WORKDIR /app
