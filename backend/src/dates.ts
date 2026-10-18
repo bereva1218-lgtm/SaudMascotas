@@ -20,3 +20,30 @@ export const hourInAppTimeZone = (instant: Date = new Date()) =>
   Number(
     new Intl.DateTimeFormat("en-US", { timeZone: APP_TIME_ZONE, hour: "2-digit", hourCycle: "h23" }).format(instant)
   );
+
+// Colombia no tiene horario de verano: siempre UTC-5.
+export const APP_UTC_OFFSET = "-05:00";
+
+// Fecha "YYYY-MM-DD" + hora "HH:MM" en Colombia → instante ISO (UTC).
+export const appLocalToISO = (date: string, time: string) => new Date(`${date}T${time}:00${APP_UTC_OFFSET}`).toISOString();
+
+// Último instante (23:59:59.999 en Colombia) de una fecha "YYYY-MM-DD".
+export const endOfAppDay = (date: string) => new Date(`${date}T23:59:59.999${APP_UTC_OFFSET}`);
+
+// Hora "HH:MM" en Colombia de un instante.
+export const timeInAppTimeZone = (instant: Date) =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(instant);
+
+// Días entre dos fechas "YYYY-MM-DD" (to - from).
+export const daysBetween = (from: string, to: string) =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+
+export const isValidDateString = (value: unknown): value is string =>
+  typeof value === "string" &&
+  /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+  new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);

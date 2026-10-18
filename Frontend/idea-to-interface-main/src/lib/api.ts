@@ -1,5 +1,6 @@
 import { Pet, DailyLog, Alert, User, Reminder } from "./types";
 import { Purchase, PurchaseInput, PurchaseCategory } from "./purchases";
+import { Medication, MedicationInput, Vaccine, VaccineInput } from "./health";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -141,6 +142,36 @@ export const deletePurchase = async (id: string) => {
   if (!res.ok) {
     throw new ApiError(res.status, await res.text());
   }
+};
+
+const deleteJson = async (url: string) => {
+  const res = await fetch(url, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) {
+    throw new ApiError(res.status, await res.text());
+  }
+};
+const sendJson = <T,>(url: string, method: "POST" | "PUT", body: unknown) =>
+  fetchJson<T>(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+export const getVaccines = () => fetchJson<Vaccine[]>(`${BASE_URL}/vaccines`);
+export const createVaccine = (vaccine: VaccineInput) => sendJson<Vaccine>(`${BASE_URL}/vaccines`, "POST", vaccine);
+export const updateVaccine = (id: string, vaccine: VaccineInput) =>
+  sendJson<Vaccine>(`${BASE_URL}/vaccines/${id}`, "PUT", vaccine);
+export const deleteVaccine = (id: string) => deleteJson(`${BASE_URL}/vaccines/${id}`);
+
+export const getMedications = () => fetchJson<Medication[]>(`${BASE_URL}/medications`);
+export const createMedication = (medication: MedicationInput) =>
+  sendJson<Medication>(`${BASE_URL}/medications`, "POST", medication);
+export const updateMedication = (id: string, medication: MedicationInput) =>
+  sendJson<Medication>(`${BASE_URL}/medications/${id}`, "PUT", medication);
+export const deleteMedication = (id: string) => deleteJson(`${BASE_URL}/medications/${id}`);
+// Marca como administrada la dosis programada para `scheduledAt`
+export const markDoseAdministered = (medicationId: string, scheduledAt: string) =>
+  sendJson<Medication>(`${BASE_URL}/medications/${medicationId}/doses`, "POST", { scheduledAt });
+export const undoDose = async (medicationId: string, scheduledAt: string) => {
+  const url = new URL(`${BASE_URL}/medications/${medicationId}/doses`);
+  url.searchParams.set("scheduledAt", scheduledAt);
+  return fetchJson<Medication>(url.toString(), { method: "DELETE" });
 };
 
 // Evento de ventana para avisar que los recordatorios pudieron cambiar (p. ej., al guardar un registro)

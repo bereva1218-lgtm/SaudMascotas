@@ -7,10 +7,10 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { Alert, Prisma } from "@prisma/client";
+import { Alert, Medication, Prisma, Vaccine } from "@prisma/client";
 import prisma from "./prisma";
 import { normalizePetName, findDuplicatePetName, duplicatePetNameMessage } from "./validation";
-import { todayInAppTimeZone } from "./dates";
+import { dateInTimeZone, timeInAppTimeZone, todayInAppTimeZone } from "./dates";
 import {
   parseLogInput,
   toLogResponse,
@@ -23,6 +23,7 @@ import {
 import { evaluatePetAlerts } from "./alerts";
 import { getRemindersForOwner } from "./reminders";
 import { PURCHASE_CATEGORIES, parsePurchaseInput, toPurchaseResponse } from "./purchases";
+import { isScheduledDose, medicationSummary, parseMedicationInput, parseVaccineInput } from "./health";
 import { generatePetRecommendation, generateChatResponse } from "./openai";
 import "express-async-errors";
 
@@ -263,6 +264,8 @@ app.delete("/pets/:id", requireAuth, async (req: AuthRequest, res: Response) => 
   await prisma.dailyLog.deleteMany({ where: { petId: Number(id) } });
   await prisma.alert.deleteMany({ where: { petId: Number(id) } });
   await prisma.purchase.deleteMany({ where: { petId: Number(id) } });
+  await prisma.vaccine.deleteMany({ where: { petId: Number(id) } });
+  await prisma.medication.deleteMany({ where: { petId: Number(id) } });
   await prisma.pet.delete({ where: { id: Number(id) } });
 
   res.status(204).send();
@@ -439,7 +442,174 @@ app.delete("/purchases/:id", requireAuth, async (req: AuthRequest, res: Response
   res.status(204).send();
 });
 
-// Recordatorios pendientes del usuario (por ahora: registros diarios sin hacer)
+// ---------- Vacunas y medicamentos ----------
+
+const toVaccineResponse = ({ pet, ...v }: Vaccine & { pet?: { name: string } | null }) => ({
+  ...v,
+  id: String(v.id),
+  petId: String(v.petId),
+  petName: pet?.name ?? "",
+});
+
+const toMedicationResponse = (
+  { pet, doses, ...m }: Medication & { pet?: { name: string } | null; doses: { scheduledAt: string }[] },
+  now: Date = new Date()
+) => {
+  const administered = doses.map((d) => d.scheduledAt).sort();
+  const start = new Date(m.startAt);
+  return {
+    ...m,
+    id: String(m.id),
+    petId: String(m.petId),
+    petName: pet?.name ?? "",
+    // fecha y hora de inicio en Colombia (para el formulario)
+    startDate: dateInTimeZone(start),
+    startTime: timeInAppTimeZone(start),
+    ...medicationSummary(m, administered, now),
+    administeredDoses: administered,
+  };
+};
+
+const findOwnedVaccine = async (id: number, ownerId: number) => {
+  if (!Number.isInteger(id)) return null;
+  const vaccine = await prisma.vaccine.findUnique({ where: { id }, include: { pet: { select: { ownerId: true } } } });
+  return vaccine && vaccine.pet.ownerId === ownerId ? vaccine : null;
+};
+
+const findOwnedMedication = async (id: number, ownerId: number) => {
+  if (!Number.isInteger(id)) return null;
+  const medication = await prisma.medication.findUnique({ where: { id }, include: { pet: { select: { ownerId: true } } } });
+  return medication && medication.pet.ownerId === ownerId ? medication : null;
+};
+
+const medicationInclude = { pet: { select: { name: true } }, doses: { select: { scheduledAt: true } } } as const;
+
+app.get("/vaccines", requireAuth, async (req: AuthRequest, res: Response) => {
+  const petId = req.query.petId ? Number(req.query.petId) : undefined;
+  const vaccines = await prisma.vaccine.findMany({
+    where: { pet: { ownerId: req.user!.id }, ...(petId ? { petId } : {}) },
+    include: { pet: { select: { name: true } } },
+    orderBy: [{ appliedDate: "desc" }, { id: "desc" }],
+  });
+  res.json(vaccines.map(toVaccineResponse));
+});
+
+app.post("/vaccines", requireAuth, async (req: AuthRequest, res: Response) => {
+  const pet = await findOwnedPet(Number(req.body.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const { input, error } = parseVaccineInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
+  const vaccine = await prisma.vaccine.create({
+    data: { ...input, petId: pet.id, createdAt: new Date().toISOString() },
+    include: { pet: { select: { name: true } } },
+  });
+  res.status(201).json(toVaccineResponse(vaccine));
+});
+
+app.put("/vaccines/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await findOwnedVaccine(Number(req.params.id), req.user!.id);
+  if (!existing) return res.status(404).json({ message: "Vacuna no encontrada" });
+  const pet = await findOwnedPet(Number(req.body.petId ?? existing.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const { input, error } = parseVaccineInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
+  const vaccine = await prisma.vaccine.update({
+    where: { id: existing.id },
+    data: { ...input, petId: pet.id },
+    include: { pet: { select: { name: true } } },
+  });
+  res.json(toVaccineResponse(vaccine));
+});
+
+app.delete("/vaccines/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await findOwnedVaccine(Number(req.params.id), req.user!.id);
+  if (!existing) return res.status(404).json({ message: "Vacuna no encontrada" });
+  await prisma.vaccine.delete({ where: { id: existing.id } });
+  res.status(204).send();
+});
+
+app.get("/medications", requireAuth, async (req: AuthRequest, res: Response) => {
+  const petId = req.query.petId ? Number(req.query.petId) : undefined;
+  const medications = await prisma.medication.findMany({
+    where: { pet: { ownerId: req.user!.id }, ...(petId ? { petId } : {}) },
+    include: medicationInclude,
+    orderBy: [{ endDate: "desc" }, { id: "desc" }],
+  });
+  const now = new Date();
+  res.json(medications.map((m) => toMedicationResponse(m, now)));
+});
+
+app.post("/medications", requireAuth, async (req: AuthRequest, res: Response) => {
+  const pet = await findOwnedPet(Number(req.body.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const { input, error } = parseMedicationInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
+  const medication = await prisma.medication.create({
+    data: { ...input, petId: pet.id, createdAt: new Date().toISOString() },
+    include: medicationInclude,
+  });
+  res.status(201).json(toMedicationResponse(medication));
+});
+
+app.put("/medications/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await findOwnedMedication(Number(req.params.id), req.user!.id);
+  if (!existing) return res.status(404).json({ message: "Medicamento no encontrado" });
+  const pet = await findOwnedPet(Number(req.body.petId ?? existing.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const { input, error } = parseMedicationInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
+
+  const medication = await prisma.$transaction(async (tx) => {
+    // si cambia el horario, las dosis marcadas que ya no pertenecen al calendario se descartan
+    const doses = await tx.medicationDose.findMany({ where: { medicationId: existing.id } });
+    const stale = doses.filter((d) => !isScheduledDose(input, d.scheduledAt)).map((d) => d.id);
+    if (stale.length) await tx.medicationDose.deleteMany({ where: { id: { in: stale } } });
+    return tx.medication.update({ where: { id: existing.id }, data: { ...input, petId: pet.id }, include: medicationInclude });
+  });
+  res.json(toMedicationResponse(medication));
+});
+
+app.delete("/medications/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await findOwnedMedication(Number(req.params.id), req.user!.id);
+  if (!existing) return res.status(404).json({ message: "Medicamento no encontrado" });
+  // las dosis registradas se borran en cascada
+  await prisma.medication.delete({ where: { id: existing.id } });
+  res.status(204).send();
+});
+
+// Marca una dosis programada como administrada (idempotente)
+app.post("/medications/:id/doses", requireAuth, async (req: AuthRequest, res: Response) => {
+  const medication = await findOwnedMedication(Number(req.params.id), req.user!.id);
+  if (!medication) return res.status(404).json({ message: "Medicamento no encontrado" });
+  const scheduledAt = typeof req.body.scheduledAt === "string" ? new Date(req.body.scheduledAt) : null;
+  if (!scheduledAt || Number.isNaN(scheduledAt.getTime()) || !isScheduledDose(medication, scheduledAt.toISOString())) {
+    return res.status(400).json({ message: "Esa dosis no corresponde al horario del tratamiento" });
+  }
+  if (scheduledAt.getTime() > Date.now() + 2 * 3_600_000) {
+    return res.status(400).json({ message: "Solo puedes marcar dosis cuya hora ya llegó o falta menos de 2 horas" });
+  }
+  const iso = scheduledAt.toISOString();
+  await prisma.medicationDose.upsert({
+    where: { medicationId_scheduledAt: { medicationId: medication.id, scheduledAt: iso } },
+    update: {},
+    create: { medicationId: medication.id, scheduledAt: iso, administeredAt: new Date().toISOString() },
+  });
+  const updated = await prisma.medication.findUniqueOrThrow({ where: { id: medication.id }, include: medicationInclude });
+  res.status(201).json(toMedicationResponse(updated));
+});
+
+// Deshace una dosis marcada por error
+app.delete("/medications/:id/doses", requireAuth, async (req: AuthRequest, res: Response) => {
+  const medication = await findOwnedMedication(Number(req.params.id), req.user!.id);
+  if (!medication) return res.status(404).json({ message: "Medicamento no encontrado" });
+  const scheduledAt = typeof req.query.scheduledAt === "string" ? new Date(req.query.scheduledAt) : null;
+  if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) return res.status(400).json({ message: "Dosis no válida" });
+  await prisma.medicationDose.deleteMany({ where: { medicationId: medication.id, scheduledAt: scheduledAt.toISOString() } });
+  const updated = await prisma.medication.findUniqueOrThrow({ where: { id: medication.id }, include: medicationInclude });
+  res.json(toMedicationResponse(updated));
+});
+
+// Recordatorios pendientes del usuario: registros diarios, dosis y refuerzos de vacunas
 app.get("/reminders", requireAuth, async (req: AuthRequest, res: Response) => {
   res.json(await getRemindersForOwner(req.user!.id));
 });

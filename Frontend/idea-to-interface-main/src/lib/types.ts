@@ -54,16 +54,19 @@ export const ALERT_LEVEL_LABELS: Record<AlertLevel, string> = {
   alerta: "Alerta",
 };
 
-// Recordatorio para el dueño (por ahora: registro diario pendiente)
+// Recordatorio para el dueño: registro diario, dosis de medicamento o refuerzo de vacuna
 export interface Reminder {
   id: string;
-  type: "daily_log";
+  type: "daily_log" | "medication_dose" | "vaccine_due";
   petId: string;
   petName: string;
   title: string;
   message: string;
   dueDate: string;
   priority: "normal" | "high";
+  medicationId?: string;
+  scheduledAt?: string;
+  vaccineId?: string;
 }
 
 export const ALERT_DISCLAIMER = "Sugerencia informativa; no reemplaza el diagnóstico de un veterinario.";

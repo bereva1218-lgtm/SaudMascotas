@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { getReminders, REMINDERS_CHANGED_EVENT } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { ClipboardList, Bell, FileText, Dog, PawPrint, ChevronDown, LogOut, ShoppingBag } from "lucide-react";
+import { ClipboardList, Bell, FileText, Dog, PawPrint, ChevronDown, LogOut, ShoppingBag, Syringe } from "lucide-react";
 import { useUserRole, ROLE_CONFIG, UserRole } from "@/lib/UserRoleContext";
 import { useAuth } from "@/lib/auth";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { to: "/reportes", icon: FileText, label: "Reportes" },
   { to: "/mascotas", icon: Dog, label: "Mis Mascotas" },
   { to: "/compras", icon: ShoppingBag, label: "Compras" },
+  { to: "/salud", icon: Syringe, label: "Vacunas y medicamentos" },
 ];
 
 const AppSidebar = () => {
@@ -21,14 +22,20 @@ const AppSidebar = () => {
   const { role } = useUserRole();
   const { user, logout } = useAuth();
   const config = user ? ROLE_CONFIG[user.role as UserRole] : ROLE_CONFIG[role];
-  // mascotas con el registro de hoy pendiente; se actualiza al cambiar de página
-  const [pendingLogs, setPendingLogs] = useState(0);
+  // contadores del menú: registros de hoy pendientes y recordatorios urgentes de salud
+  // (dosis atrasadas, refuerzos vencidos o para hoy/mañana); se actualizan al cambiar de página
+  const [badges, setBadges] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!user) return;
     const refresh = () =>
       getReminders()
-        .then((list) => setPendingLogs(list.filter((r) => r.type === "daily_log").length))
+        .then((list) =>
+          setBadges({
+            "/registro": list.filter((r) => r.type === "daily_log").length,
+            "/salud": list.filter((r) => r.type !== "daily_log" && r.priority === "high").length,
+          })
+        )
         .catch((e) => console.error("failed reminders", e));
     refresh();
     // también al guardar un registro sin cambiar de página
@@ -68,13 +75,13 @@ const AppSidebar = () => {
               >
                 <item.icon className="h-4 w-4" />
                 <span className="hidden sm:inline">{item.label}</span>
-                {item.to === "/registro" && pendingLogs > 0 && (
+                {(badges[item.to] ?? 0) > 0 && (
                   <span
                     className="flex h-5 min-w-5 items-center justify-center rounded-full bg-status-observation px-1.5 text-[10px] font-bold text-white"
-                    title={`${pendingLogs} registro(s) de hoy pendiente(s)`}
-                    aria-label={`${pendingLogs} registro(s) de hoy pendiente(s)`}
+                    title={`${badges[item.to]} pendiente(s)`}
+                    aria-label={`${badges[item.to]} pendiente(s)`}
                   >
-                    {pendingLogs}
+                    {badges[item.to]}
                   </span>
                 )}
               </Link>

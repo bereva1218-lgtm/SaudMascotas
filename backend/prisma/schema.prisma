@@ -35,6 +35,8 @@ model Pet {
   logs      DailyLog[]
   alerts    Alert[]
   purchases Purchase[]
+  vaccines    Vaccine[]
+  medications Medication[]
 
   @@unique([ownerId, normalizedName])
 }
@@ -100,4 +102,53 @@ model Purchase {
   createdAt    String
 
   @@index([petId, purchaseDate])
+}
+
+// Vacunas aplicadas (historial) y fecha del próximo refuerzo
+model Vaccine {
+  id           Int     @id @default(autoincrement())
+  pet          Pet     @relation(fields: [petId], references: [id])
+  petId        Int
+  name         String
+  // "YYYY-MM-DD"
+  appliedDate  String
+  // próxima dosis o refuerzo "YYYY-MM-DD"; opcional
+  nextDoseDate String?
+  clinic       String?
+  notes        String?
+  createdAt    String
+
+  @@index([petId, appliedDate])
+}
+
+// Tratamiento con medicamento: dosis cada `frequencyHours` desde `startAt` hasta `endDate`
+model Medication {
+  id             Int     @id @default(autoincrement())
+  pet            Pet     @relation(fields: [petId], references: [id])
+  petId          Int
+  name           String
+  // p. ej. "1 tableta", "5 ml"
+  dose           String
+  frequencyHours Int
+  // fecha y hora (ISO, UTC) de la primera dosis
+  startAt        String
+  // último día del tratamiento "YYYY-MM-DD" (hora de Colombia)
+  endDate        String
+  notes          String?
+  createdAt      String
+  doses          MedicationDose[]
+
+  @@index([petId])
+}
+
+// Dosis marcada como administrada
+model MedicationDose {
+  id             Int        @id @default(autoincrement())
+  medication     Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  medicationId   Int
+  // hora programada de la dosis (ISO, UTC)
+  scheduledAt    String
+  administeredAt String
+
+  @@unique([medicationId, scheduledAt])
 }

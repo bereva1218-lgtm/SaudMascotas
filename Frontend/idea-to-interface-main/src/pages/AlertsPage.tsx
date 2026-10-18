@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
-import { getAlerts, markAlertRead } from "@/lib/api";
-import { Alert, ALERT_DISCLAIMER } from "@/lib/types";
+import { getAlerts, getReminders, markAlertRead } from "@/lib/api";
+import { Alert, ALERT_DISCLAIMER, Reminder } from "@/lib/types";
 import AlertCard from "@/components/AlertCard";
+import RemindersCard from "@/components/RemindersCard";
 import { motion } from "framer-motion";
 import { Info } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const AlertsPage = () => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const loadReminders = () =>
+    getReminders().then(setReminders).catch((e) => console.error("failed to load reminders", e));
 
   const handleMarkRead = (id: string) => {
     // optimistic update
@@ -24,6 +28,7 @@ const AlertsPage = () => {
 
   useEffect(() => {
     getAlerts().then(setAlerts).catch((e) => console.error("failed to load alerts", e));
+    loadReminders();
   }, []);
 
   return (
@@ -50,12 +55,20 @@ const AlertsPage = () => {
             Activas ({active.length}){unreadCount > 0 ? ` · ${unreadCount} sin leer` : ""}
           </TabsTrigger>
           <TabsTrigger value="resolved">Resueltas ({resolved.length})</TabsTrigger>
+          <TabsTrigger value="reminders">Recordatorios ({reminders.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="active" className="space-y-3 mt-4">
           {active.length === 0 ? (
             <p className="text-center text-muted-foreground py-12">No hay alertas activas 🎉</p>
           ) : (
             active.map((a) => <AlertCard key={a.id} alert={a} onMarkRead={handleMarkRead} />)
+          )}
+        </TabsContent>
+        <TabsContent value="reminders" className="mt-4">
+          {reminders.length === 0 ? (
+            <p className="text-center text-muted-foreground py-12">No tienes recordatorios pendientes 🎉</p>
+          ) : (
+            <RemindersCard reminders={reminders} onChanged={loadReminders} title="Pendientes" />
           )}
         </TabsContent>
         <TabsContent value="resolved" className="space-y-3 mt-4">

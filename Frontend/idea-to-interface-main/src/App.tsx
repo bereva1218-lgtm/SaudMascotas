@@ -10,6 +10,7 @@ import AlertsPage from "./pages/AlertsPage";
 import ReportsPage from "./pages/ReportsPage";
 import PetsPage from "./pages/PetsPage";
 import ComprasPage from "./pages/ComprasPage";
+import SaludPage from "./pages/SaludPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import LandingPage from "./pages/LandingPage";
@@ -45,6 +46,7 @@ const App = () => (
             <Route path="/reportes" element={<ReportsPage />} />
             <Route path="/mascotas" element={<PetsPage />} />
             <Route path="/compras" element={<ComprasPage />} />
+            <Route path="/salud" element={<SaludPage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -26,11 +26,14 @@ const Dashboard = () => {
   const config = ROLE_CONFIG[role];
   const { user } = useAuth();
 
+  const loadReminders = () =>
+    getReminders().then(setReminders).catch((e) => console.error("failed reminders", e));
+
   useEffect(() => {
     getPets().then(setPets).catch((e) => console.error("failed pets", e));
     getAlerts().then(setAlerts).catch((e) => console.error("failed alerts", e));
     getLogs().then(setLogs).catch((e) => console.error("failed logs", e));
-    getReminders().then(setReminders).catch((e) => console.error("failed reminders", e));
+    loadReminders();
   }, []);
 
   const handleMarkRead = (id: string) => {
@@ -55,8 +58,8 @@ const Dashboard = () => {
         </p>
       </motion.div>
 
-      {/* Recordatorios de registro diario */}
-      <RemindersCard reminders={reminders} />
+      {/* Recordatorios: registros diarios, dosis y vacunas */}
+      <RemindersCard reminders={reminders} onChanged={loadReminders} />
 
       {/* Semáforo general */}
       <div className="grid grid-cols-3 gap-3">

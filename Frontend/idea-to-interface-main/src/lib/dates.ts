@@ -46,3 +46,16 @@ export const formatDateTime = (value: string | Date) =>
 // Hora legible en Colombia, p. ej. "3:47 p. m.".
 export const formatTime = (value: string | Date) =>
   new Date(value).toLocaleTimeString(APP_LOCALE, { timeZone: APP_TIME_ZONE, hour: "numeric", minute: "2-digit" });
+
+// Días entre dos fechas "YYYY-MM-DD" (to - from).
+export const daysBetweenDates = (from: string, to: string) =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+
+// "2026-10-18" → "18 oct 2026"
+export const formatDate = (date: string) =>
+  new Date(`${date}T12:00:00Z`).toLocaleDateString(APP_LOCALE, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: APP_TIME_ZONE,
+  });

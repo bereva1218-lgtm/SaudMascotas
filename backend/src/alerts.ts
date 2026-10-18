@@ -11,13 +11,25 @@ import {
   decideAlertAction,
   evaluateAllMetrics,
 } from "./alertRules";
+import { healthContextForAlerts } from "./health";
 
 // registros que se leen: suficientes para la línea base más una racha larga
 const LOGS_TO_READ = ALERT_CONFIG.BASELINE_WINDOW + 30;
 
-// Contexto para las recomendaciones. Vacunas y medicamentos se agregan en la sección correspondiente.
-async function loadRecommendationContext(pet: { condition: string | null }): Promise<RecommendationContext> {
-  return { condition: pet.condition };
+// Contexto para las recomendaciones: condición, medicamentos activos y vacunas recientes.
+async function loadRecommendationContext(
+  pet: { id: number; condition: string | null },
+  db: PrismaClient,
+  now: Date
+): Promise<RecommendationContext> {
+  const [medications, vaccines] = await Promise.all([
+    db.medication.findMany({ where: { petId: pet.id } }),
+    db.vaccine.findMany({ where: { petId: pet.id } }),
+  ]);
+  return {
+    condition: pet.condition,
+    ...healthContextForAlerts(medications, vaccines, ALERT_CONFIG.RECENT_VACCINE_DAYS, now),
+  };
 }
 
 // Estado general de la mascota según sus alertas activas
@@ -38,7 +50,7 @@ export async function evaluatePetAlerts(petId: number, db: PrismaClient = defaul
     where: { petId, status: "active", metric: { not: null } },
     orderBy: { id: "asc" },
   });
-  const context = await loadRecommendationContext(pet);
+  const context = await loadRecommendationContext(pet, db, now);
   const timestamp = now.toISOString();
 
   for (const evaluation of evaluateAllMetrics(logs)) {
