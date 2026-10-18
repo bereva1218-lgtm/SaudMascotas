@@ -22,6 +22,7 @@ import {
 } from "./dailyLogs";
 import { evaluatePetAlerts } from "./alerts";
 import { getRemindersForOwner } from "./reminders";
+import { PURCHASE_CATEGORIES, parsePurchaseInput, toPurchaseResponse } from "./purchases";
 import { generatePetRecommendation, generateChatResponse } from "./openai";
 import "express-async-errors";
 
@@ -261,6 +262,7 @@ app.delete("/pets/:id", requireAuth, async (req: AuthRequest, res: Response) => 
   // Remove related logs and alerts before deleting the pet to avoid foreign key constraint errors
   await prisma.dailyLog.deleteMany({ where: { petId: Number(id) } });
   await prisma.alert.deleteMany({ where: { petId: Number(id) } });
+  await prisma.purchase.deleteMany({ where: { petId: Number(id) } });
   await prisma.pet.delete({ where: { id: Number(id) } });
 
   res.status(204).send();
@@ -371,6 +373,70 @@ app.put("/logs/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   // al editar puede aparecer, cambiar de nivel o resolverse una alerta
   await evaluatePetAlerts(existing.petId);
   res.json(toLogResponse(log));
+});
+
+// ---------- Compras ----------
+
+// Compra del usuario autenticado, o null si no existe o es de otro dueño
+const findOwnedPurchase = async (id: number, ownerId: number) => {
+  if (!Number.isInteger(id)) return null;
+  const purchase = await prisma.purchase.findUnique({ where: { id }, include: { pet: { select: { ownerId: true } } } });
+  return purchase && purchase.pet.ownerId === ownerId ? purchase : null;
+};
+
+app.get("/purchases", requireAuth, async (req: AuthRequest, res: Response) => {
+  const petId = req.query.petId ? Number(req.query.petId) : undefined;
+  const category = typeof req.query.category === "string" ? req.query.category : undefined;
+  if (category && !PURCHASE_CATEGORIES.includes(category as any)) {
+    return res.status(400).json({ message: "Categoría no válida" });
+  }
+  const purchases = await prisma.purchase.findMany({
+    where: {
+      pet: { ownerId: req.user!.id },
+      ...(petId ? { petId } : {}),
+      ...(category ? { category } : {}),
+    },
+    include: { pet: { select: { name: true } } },
+    orderBy: [{ purchaseDate: "desc" }, { id: "desc" }],
+  });
+  res.json(purchases.map(toPurchaseResponse));
+});
+
+app.post("/purchases", requireAuth, async (req: AuthRequest, res: Response) => {
+  const pet = await findOwnedPet(Number(req.body.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const { input, error } = parsePurchaseInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
+
+  const purchase = await prisma.purchase.create({
+    data: { ...input, images: JSON.stringify(input.images), petId: pet.id, createdAt: new Date().toISOString() },
+    include: { pet: { select: { name: true } } },
+  });
+  res.status(201).json(toPurchaseResponse(purchase));
+});
+
+app.put("/purchases/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await findOwnedPurchase(Number(req.params.id), req.user!.id);
+  if (!existing) return res.status(404).json({ message: "Compra no encontrada" });
+  // se puede cambiar la mascota asociada, siempre que también sea del usuario
+  const pet = await findOwnedPet(Number(req.body.petId ?? existing.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const { input, error } = parsePurchaseInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
+
+  const purchase = await prisma.purchase.update({
+    where: { id: existing.id },
+    data: { ...input, images: JSON.stringify(input.images), petId: pet.id },
+    include: { pet: { select: { name: true } } },
+  });
+  res.json(toPurchaseResponse(purchase));
+});
+
+app.delete("/purchases/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await findOwnedPurchase(Number(req.params.id), req.user!.id);
+  if (!existing) return res.status(404).json({ message: "Compra no encontrada" });
+  await prisma.purchase.delete({ where: { id: existing.id } });
+  res.status(204).send();
 });
 
 // Recordatorios pendientes del usuario (por ahora: registros diarios sin hacer)

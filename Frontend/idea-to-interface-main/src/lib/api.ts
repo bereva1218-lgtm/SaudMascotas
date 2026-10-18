@@ -1,4 +1,5 @@
 import { Pet, DailyLog, Alert, User, Reminder } from "./types";
+import { Purchase, PurchaseInput, PurchaseCategory } from "./purchases";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -116,6 +117,31 @@ export const updateLog = (id: string, log: DailyLogInput) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(log),
   });
+
+export const getPurchases = (filters: { petId?: string; category?: PurchaseCategory } = {}) => {
+  const url = new URL(`${BASE_URL}/purchases`);
+  if (filters.petId) url.searchParams.set("petId", filters.petId);
+  if (filters.category) url.searchParams.set("category", filters.category);
+  return fetchJson<Purchase[]>(url.toString());
+};
+export const createPurchase = (purchase: PurchaseInput) =>
+  fetchJson<Purchase>(`${BASE_URL}/purchases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(purchase),
+  });
+export const updatePurchase = (id: string, purchase: PurchaseInput) =>
+  fetchJson<Purchase>(`${BASE_URL}/purchases/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(purchase),
+  });
+export const deletePurchase = async (id: string) => {
+  const res = await fetch(`${BASE_URL}/purchases/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) {
+    throw new ApiError(res.status, await res.text());
+  }
+};
 
 // Evento de ventana para avisar que los recordatorios pudieron cambiar (p. ej., al guardar un registro)
 export const REMINDERS_CHANGED_EVENT = "reminders:changed";

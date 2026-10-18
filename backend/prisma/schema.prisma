@@ -34,6 +34,7 @@ model Pet {
   ownerId   Int?
   logs      DailyLog[]
   alerts    Alert[]
+  purchases Purchase[]
 
   @@unique([ownerId, normalizedName])
 }
@@ -79,4 +80,24 @@ model Alert {
   resolvedAt     String?
 
   @@index([petId, metric, status])
+}
+
+// Artículos comprados para una mascota (sección "Compras")
+model Purchase {
+  id           Int     @id @default(autoincrement())
+  pet          Pet     @relation(fields: [petId], references: [id])
+  petId        Int
+  itemName     String
+  // juguetes | collar | vestimenta | comida | accesorios | higiene | otro
+  category     String
+  // fecha de compra "YYYY-MM-DD"
+  purchaseDate String
+  // precio en pesos colombianos (sin decimales); opcional
+  price        Int?
+  notes        String?
+  // fotos opcionales: JSON con imágenes comprimidas (data URL), máximo 3
+  images       String  @default("[]")
+  createdAt    String
+
+  @@index([petId, purchaseDate])
 }

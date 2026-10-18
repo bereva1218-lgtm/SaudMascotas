@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { getReminders, REMINDERS_CHANGED_EVENT } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { ClipboardList, Bell, FileText, Dog, PawPrint, ChevronDown, LogOut } from "lucide-react";
+import { ClipboardList, Bell, FileText, Dog, PawPrint, ChevronDown, LogOut, ShoppingBag } from "lucide-react";
 import { useUserRole, ROLE_CONFIG, UserRole } from "@/lib/UserRoleContext";
 import { useAuth } from "@/lib/auth";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: "/alertas", icon: Bell, label: "Alertas" },
   { to: "/reportes", icon: FileText, label: "Reportes" },
   { to: "/mascotas", icon: Dog, label: "Mis Mascotas" },
+  { to: "/compras", icon: ShoppingBag, label: "Compras" },
 ];
 
 const AppSidebar = () => {
