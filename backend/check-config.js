@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Lee backend/.env igual que el servidor (ejecutar desde la carpeta backend)
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
+
 console.log("=== VERIFICACIÓN DE CONFIGURACIÓN ===\n");
 
 // Verificar variables de entorno

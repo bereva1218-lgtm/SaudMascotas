@@ -110,16 +110,49 @@ Git → Control de versiones
 
 Este proyecto ya cuenta con `docker-compose.yml` para levantar el backend y el frontend en contenedores.
 
-1. Copia `.env.example` a `.env` en la raíz del proyecto.
-2. Agrega tu clave de OpenAI en `OPENAI_API_KEY`.
+1. Copia `backend/.env.example` como `backend/.env` (si aún no existe).
+2. Agrega tu clave de OpenAI en `OPENAI_API_KEY` dentro de `backend/.env`.
 3. Ejecuta:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 - El backend quedará disponible en `http://localhost:4000`
 - El frontend quedará disponible en `http://localhost:8080`
 
-El servicio de frontend ya está configurado para apuntar al backend por su nombre de servicio `http://backend:4000` dentro de Docker.
+Al iniciar, el backend aplica las migraciones pendientes de la base de datos (`prisma migrate deploy`).
+El navegador llama al backend en `http://127.0.0.1:4000` (variable `VITE_API_URL` en `docker-compose.yml`).
+
+> En Windows, Docker no detecta automáticamente los cambios en el código: después de modificar archivos,
+> reinicia los contenedores con `docker compose up -d --force-recreate backend frontend`.
+
+## Configurar o cambiar la clave de OpenAI
+
+La clave se usa para el chat y las recomendaciones con IA. Vive **solo** en `backend/.env`,
+que git ignora para no publicarla; `backend/.env.example` es la plantilla sin datos reales.
+
+1. Crea una clave nueva en <https://platform.openai.com/api-keys> (y revoca la anterior si se expuso).
+2. Abre `backend/.env` y reemplaza el valor:
+
+   ```env
+   OPENAI_API_KEY=sk-proj-tu-clave-nueva
+   ```
+
+3. Verifica la configuración (no muestra la clave):
+
+   ```bash
+   cd backend
+   node check-config.js
+   ```
+
+4. Recrea el contenedor del backend para que lea el nuevo valor (`restart` no basta, porque
+   el archivo `.env` se lee al crear el contenedor):
+
+   ```bash
+   docker compose up -d --force-recreate backend
+   ```
+
+Si la clave no es válida, el resto de la app sigue funcionando; solo fallan el chat y las
+recomendaciones con IA.
 
