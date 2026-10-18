@@ -11,3 +11,11 @@ logs
 # OS files
 .DS_Store
 Thumbs.db
+
+# Variables de entorno (contienen claves); usar .env.example como plantilla
+.env
+
+# Respaldos y bases temporales de pruebas
+prisma/backups/
+prisma/test-*.db*
+prisma/*.db-journal

@@ -7,8 +7,22 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { Alert, Prisma } from "@prisma/client";
 import prisma from "./prisma";
-import { generatePetRecommendation } from "./openai";
+import { normalizePetName, findDuplicatePetName, duplicatePetNameMessage } from "./validation";
+import { todayInAppTimeZone } from "./dates";
+import {
+  parseLogInput,
+  toLogResponse,
+  findLogForDay,
+  createDailyLog,
+  updateDailyLog,
+  DuplicateDailyLogError,
+  duplicateLogMessage,
+} from "./dailyLogs";
+import { evaluatePetAlerts } from "./alerts";
+import { getRemindersForOwner } from "./reminders";
+import { generatePetRecommendation, generateChatResponse } from "./openai";
 import "express-async-errors";
 
 const app = express();
@@ -56,6 +70,7 @@ async function seed() {
       data: [
         {
           name: "Max",
+          normalizedName: "max",
           breed: "Labrador Retriever",
           age: 11,
           weight: 30,
@@ -66,6 +81,7 @@ async function seed() {
         },
         {
           name: "Luna",
+          normalizedName: "luna",
           breed: "Beagle",
           age: 13,
           weight: 12,
@@ -110,6 +126,7 @@ app.post("/auth/login", async (req, res) => {
 
 // protected resources
 app.get("/pets", requireAuth, async (req: AuthRequest, res: Response) => {
+  // el estado (stable/observation/alert) se mantiene al evaluar las alertas tras cada registro
   const pets = await prisma.pet.findMany({ where: { ownerId: req.user?.id } });
   res.json(
     pets.map((p) => ({
@@ -126,10 +143,33 @@ app.get("/pets/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   res.json({ ...pet, id: String(pet.id), ownerId: pet.ownerId ? String(pet.ownerId) : null });
 });
 
+// Devuelve la mascota del dueño que ya usa ese nombre (ignorando mayúsculas y espacios), si existe.
+const findOwnerPetWithName = async (ownerId: number, name: string, excludeId?: number) => {
+  const pets = await prisma.pet.findMany({ where: { ownerId }, select: { id: true, name: true } });
+  return findDuplicatePetName(pets, name, excludeId);
+};
+
+const isUniqueConstraintError = (e: unknown) =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+
 app.post("/pets", requireAuth, async (req: AuthRequest, res: Response) => {
-  const { id, ...petData } = req.body;
-  const pet = await prisma.pet.create({ data: { ...petData, ownerId: req.user!.id } });
-  res.status(201).json({ ...pet, id: String(pet.id), ownerId: pet.ownerId ? String(pet.ownerId) : null });
+  const { id, normalizedName, ...petData } = req.body;
+  const name = typeof petData.name === "string" ? petData.name.trim() : "";
+  if (!name) return res.status(400).json({ message: "El nombre de la mascota es obligatorio" });
+
+  const duplicate = await findOwnerPetWithName(req.user!.id, name);
+  if (duplicate) return res.status(409).json({ message: duplicatePetNameMessage(duplicate.name) });
+
+  try {
+    const pet = await prisma.pet.create({
+      data: { ...petData, name, normalizedName: normalizePetName(name), ownerId: req.user!.id },
+    });
+    res.status(201).json({ ...pet, id: String(pet.id), ownerId: pet.ownerId ? String(pet.ownerId) : null });
+  } catch (e) {
+    // otra petición pudo registrar el mismo nombre entre la validación y la inserción
+    if (isUniqueConstraintError(e)) return res.status(409).json({ message: duplicatePetNameMessage(name) });
+    throw e;
+  }
 });
 
 app.patch("/pets/:id", requireAuth, async (req: AuthRequest, res: Response) => {
@@ -141,7 +181,14 @@ app.patch("/pets/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   // Build update object with proper type conversions
   const updateData: any = {};
   
-  if (data.name !== undefined) updateData.name = data.name;
+  if (data.name !== undefined) {
+    const name = typeof data.name === "string" ? data.name.trim() : "";
+    if (!name) return res.status(400).json({ message: "El nombre de la mascota es obligatorio" });
+    const duplicate = await findOwnerPetWithName(req.user!.id, name, existingPet.id);
+    if (duplicate) return res.status(409).json({ message: duplicatePetNameMessage(duplicate.name) });
+    updateData.name = name;
+    updateData.normalizedName = normalizePetName(name);
+  }
   if (data.breed !== undefined) updateData.breed = data.breed;
   if (data.age !== undefined) updateData.age = Number(data.age);
   if (data.weight !== undefined) updateData.weight = Number(data.weight);
@@ -149,10 +196,16 @@ app.patch("/pets/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   if (data.status !== undefined) updateData.status = data.status;
   if (data.condition !== undefined) updateData.condition = data.condition;
   
-  const pet = await prisma.pet.update({
-    where: { id: Number(id) },
-    data: updateData,
-  });
+  let pet;
+  try {
+    pet = await prisma.pet.update({
+      where: { id: Number(id) },
+      data: updateData,
+    });
+  } catch (e) {
+    if (isUniqueConstraintError(e)) return res.status(409).json({ message: duplicatePetNameMessage(updateData.name) });
+    throw e;
+  }
   res.json({ ...pet, id: String(pet.id), ownerId: pet.ownerId ? String(pet.ownerId) : null });
 });
 
@@ -213,113 +266,175 @@ app.delete("/pets/:id", requireAuth, async (req: AuthRequest, res: Response) => 
   res.status(204).send();
 });
 
+// Sin el objeto `pet` completo (su avatar puede ser una imagen pesada en base64)
+const toAlertResponse = ({ pet, ...a }: Alert & { pet: { name: string } | null }) => ({
+  ...a,
+  id: String(a.id),
+  petId: String(a.petId),
+  petName: pet?.name ?? "",
+});
+
 app.get("/alerts", requireAuth, async (req: AuthRequest, res: Response) => {
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
   const alerts = await prisma.alert.findMany({
     where: {
       pet: {
         ownerId: req.user?.id,
       },
+      ...(status ? { status } : {}),
     },
     include: {
-      pet: true,
+      pet: { select: { name: true } },
     },
+    // activas primero ("active" < "resolved"), luego las más recientes
+    orderBy: [{ status: "asc" }, { id: "desc" }],
   });
-  res.json(
-    alerts.map((a) => ({
-      ...a,
-      id: String(a.id),
-      petId: String(a.petId),
-      petName: a.pet?.name ?? "",
-    }))
-  );
+  res.json(alerts.map(toAlertResponse));
 });
 
 app.get("/alerts/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   const alert = await prisma.alert.findUnique({
     where: { id: Number(req.params.id) },
-    include: { pet: true },
+    include: { pet: { select: { name: true, ownerId: true } } },
   });
   if (!alert || alert.pet?.ownerId !== req.user?.id) return res.status(404).json({ message: "Not found" });
-  res.json({
-    ...alert,
-    id: String(alert.id),
-    petId: String(alert.petId),
-    petName: alert.pet?.name ?? "",
+  res.json(toAlertResponse(alert));
+});
+
+app.put("/alerts/:id/read", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await prisma.alert.findUnique({
+    where: { id: Number(req.params.id) },
+    include: { pet: { select: { ownerId: true } } },
   });
+  if (!existing || existing.pet.ownerId !== req.user?.id) return res.status(404).json({ message: "Not found" });
+  const alert = await prisma.alert.update({
+    where: { id: existing.id },
+    data: { read: true },
+    include: { pet: { select: { name: true } } },
+  });
+  res.json(toAlertResponse(alert));
 });
 
-app.put("/alerts/:id/read", requireAuth, async (req, res) => {
-  const alert = await prisma.alert.update({ where: { id: Number(req.params.id) }, data: { read: true } });
-  res.json({ ...alert, id: String(alert.id), petId: String(alert.petId) });
-});
+// Mascota del usuario autenticado, o null si no existe o es de otro dueño.
+const findOwnedPet = async (petId: number, ownerId: number) => {
+  if (!Number.isInteger(petId)) return null;
+  const pet = await prisma.pet.findUnique({ where: { id: petId } });
+  return pet && pet.ownerId === ownerId ? pet : null;
+};
 
-app.get("/logs", requireAuth, async (req, res) => {
+app.get("/logs", requireAuth, async (req: AuthRequest, res: Response) => {
   const petId = req.query.petId ? Number(req.query.petId) : undefined;
-  const where = petId ? { petId } : {};
-  const logs = await prisma.dailyLog.findMany({ where });
-  // parse stored JSON images field
-  const out = logs.map((l) => ({ ...l, id: String(l.id), petId: String(l.petId), images: JSON.parse(l.images) }));
-  res.json(out);
+  // solo los registros de las mascotas del usuario
+  const logs = await prisma.dailyLog.findMany({
+    where: { ...(petId ? { petId } : {}), pet: { ownerId: req.user!.id } },
+  });
+  res.json(logs.map(toLogResponse));
 });
 
-app.post("/logs", requireAuth, async (req, res) => {
-  // convert images array to string for storage
-  const {
-    id,
-    petId,
-    appetite,
-    energy,
-    mood,
-    waterIntake,
-    sleep,
-    mobility,
-    images,
-    ...rest
-  } = req.body;
+// Registro de hoy (zona horaria de la app) para una mascota; `log` es null si aún no existe.
+app.get("/logs/today", requireAuth, async (req: AuthRequest, res: Response) => {
+  const pet = await findOwnedPet(Number(req.query.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const date = todayInAppTimeZone();
+  const log = await findLogForDay(pet.id, date);
+  res.json({ date, log: log ? toLogResponse(log) : null });
+});
 
-  const numericPetId = Number(petId);
-  const data = {
-    ...rest,
-    petId: numericPetId,
-    appetite: Number(appetite),
-    energy: Number(energy),
-    mood: Number(mood),
-    waterIntake: Number(waterIntake),
-    sleep: Number(sleep),
-    mobility: Number(mobility),
-    images: JSON.stringify(images ?? []),
-  };
+app.post("/logs", requireAuth, async (req: AuthRequest, res: Response) => {
+  const pet = await findOwnedPet(Number(req.body.petId), req.user!.id);
+  if (!pet) return res.status(404).json({ message: "Mascota no encontrada" });
+  const { input, error } = parseLogInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
 
-  const log = await prisma.dailyLog.create({ data });
-
-  const minMetric = Math.min(data.appetite, data.energy, data.mood, data.waterIntake, data.sleep, data.mobility);
-  let alertType: string | null = null;
-  let alertMessage: string | null = null;
-
-  if (minMetric <= 2) {
-    alertType = "urgent";
-    alertMessage = "Se detectó un estado crítico en los signos de tu mascota. Revisa su condición de inmediato.";
-  } else if (minMetric === 3) {
-    alertType = "preventive";
-    alertMessage = "Se detectó una atención preventiva necesaria. Revisa los indicadores de tu mascota.";
-  }
-
-  if (alertType) {
-    const pet = await prisma.pet.findUnique({ where: { id: numericPetId } });
-    if (pet) {
-      await prisma.alert.create({
-        data: {
-          petId: numericPetId,
-          type: alertType,
-          message: alertMessage!,
-          date: new Date().toISOString(),
-          read: false,
-        },
-      });
+  // la fecha la decide el servidor para que "hoy" sea siempre el día en Bogotá
+  let log;
+  try {
+    log = await createDailyLog(pet.id, todayInAppTimeZone(), input);
+  } catch (e) {
+    if (e instanceof DuplicateDailyLogError) {
+      return res.status(409).json({ message: duplicateLogMessage(pet.name), log: toLogResponse(e.existing) });
     }
+    throw e;
   }
 
-  res.status(201).json({ ...log, id: String(log.id), petId: String(log.petId), images: JSON.parse(log.images) });
+  await evaluatePetAlerts(pet.id);
+  res.status(201).json(toLogResponse(log));
+});
+
+app.put("/logs/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  const existing = await prisma.dailyLog.findUnique({ where: { id: Number(req.params.id) }, include: { pet: true } });
+  if (!existing || existing.pet.ownerId !== req.user!.id) return res.status(404).json({ message: "Registro no encontrado" });
+  const { input, error } = parseLogInput(req.body);
+  if (!input) return res.status(400).json({ message: error });
+
+  const log = await updateDailyLog(existing.id, input);
+  // al editar puede aparecer, cambiar de nivel o resolverse una alerta
+  await evaluatePetAlerts(existing.petId);
+  res.json(toLogResponse(log));
+});
+
+// Recordatorios pendientes del usuario (por ahora: registros diarios sin hacer)
+app.get("/reminders", requireAuth, async (req: AuthRequest, res: Response) => {
+  res.json(await getRemindersForOwner(req.user!.id));
+});
+
+// Chat endpoint
+app.post("/chat", requireAuth, async (req: AuthRequest, res: Response) => {
+  const { message } = req.body;
+
+  if (!message || typeof message !== "string") {
+    return res.status(400).json({ message: "Message is required" });
+  }
+
+  try {
+    // Get all pets for the user
+    const pets = await prisma.pet.findMany({
+      where: { ownerId: req.user?.id },
+    });
+
+    // Get latest log for each pet
+    const petsWithLogs = await Promise.all(
+      pets.map(async (pet) => {
+        const latestLog = await prisma.dailyLog.findFirst({
+          where: { petId: pet.id },
+          orderBy: { date: "desc" },
+        });
+
+        return {
+          id: pet.id,
+          name: pet.name,
+          breed: pet.breed,
+          age: pet.age,
+          weight: pet.weight,
+          condition: pet.condition,
+          status: pet.status,
+          latestLog: latestLog
+            ? {
+                date: latestLog.date,
+                appetite: latestLog.appetite,
+                energy: latestLog.energy,
+                mood: latestLog.mood,
+                waterIntake: latestLog.waterIntake,
+                sleep: latestLog.sleep,
+                mobility: latestLog.mobility,
+                notes: latestLog.notes,
+              }
+            : undefined,
+        };
+      })
+    );
+
+    // Generate chat response
+    const chatResponse = await generateChatResponse({
+      message,
+      pets: petsWithLogs,
+    });
+
+    res.json(chatResponse);
+  } catch (error) {
+    console.error("Chat error:", error);
+    res.status(500).json({ message: "Error generating response" });
+  }
 });
 
 // error handler

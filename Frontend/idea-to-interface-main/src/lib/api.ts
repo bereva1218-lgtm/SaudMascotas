@@ -1,4 +1,4 @@
-import { Pet, DailyLog, Alert, User } from "./types";
+import { Pet, DailyLog, Alert, User, Reminder } from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -23,10 +23,34 @@ async function fetchJson<T>(input: RequestInfo, init: RequestInit = {}): Promise
 
   const res = await fetch(input, init);
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Request failed ${res.status}: ${text}`);
+    throw new ApiError(res.status, await res.text());
   }
   return res.json();
+}
+
+// Error de la API; `message` es el texto que envía el servidor (pensado para mostrarse al usuario).
+// `data` es el cuerpo JSON de la respuesta (si lo hay), por ejemplo el registro existente en un 409.
+export interface ApiErrorData {
+  message?: string;
+  log?: DailyLog;
+}
+
+export class ApiError extends Error {
+  data: ApiErrorData | undefined;
+
+  constructor(public status: number, body: string) {
+    let message = `Request failed ${status}: ${body}`;
+    let data: ApiErrorData | undefined = undefined;
+    try {
+      data = JSON.parse(body);
+      if (data && typeof data.message === "string") message = data.message;
+    } catch {
+      // el cuerpo no es JSON; se conserva el texto original
+    }
+    super(message);
+    this.name = "ApiError";
+    this.data = data;
+  }
 }
 
 export const login = (email: string, password: string) =>
@@ -56,8 +80,7 @@ export const requestPetRecommendation = (id: string) =>
 export const deletePet = async (id: string) => {
   const res = await fetch(`${BASE_URL}/pets/${id}`, { method: "DELETE", headers: authHeaders() });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Request failed ${res.status}: ${text}`);
+    throw new ApiError(res.status, await res.text());
   }
 };
 
@@ -71,9 +94,38 @@ export const getLogs = (petId?: string) => {
   if (petId) url.searchParams.set("petId", petId);
   return fetchJson<DailyLog[]>(url.toString());
 };
-export const createLog = (log: DailyLog) =>
+// Datos que envía el formulario; la fecha la asigna el servidor (día actual en America/Bogota).
+export type DailyLogInput = Omit<DailyLog, "id" | "date">;
+
+// Registro de hoy de una mascota; `log` es null si todavía no se ha registrado.
+export const getTodayLog = (petId: string) => {
+  const url = new URL(`${BASE_URL}/logs/today`);
+  url.searchParams.set("petId", petId);
+  return fetchJson<{ date: string; log: DailyLog | null }>(url.toString());
+};
+// Si ya existe el registro de hoy lanza ApiError 409 con el existente en `error.data.log`.
+export const createLog = (log: DailyLogInput) =>
   fetchJson<DailyLog>(`${BASE_URL}/logs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(log),
+  });
+export const updateLog = (id: string, log: DailyLogInput) =>
+  fetchJson<DailyLog>(`${BASE_URL}/logs/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(log),
+  });
+
+// Evento de ventana para avisar que los recordatorios pudieron cambiar (p. ej., al guardar un registro)
+export const REMINDERS_CHANGED_EVENT = "reminders:changed";
+export const notifyRemindersChanged = () => window.dispatchEvent(new Event(REMINDERS_CHANGED_EVENT));
+
+export const getReminders = () => fetchJson<Reminder[]>(`${BASE_URL}/reminders`);
+
+export const sendChatMessage = (message: string) =>
+  fetchJson<{ response: string }>(`${BASE_URL}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
   });

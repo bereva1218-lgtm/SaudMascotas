@@ -2,7 +2,7 @@
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -22,6 +22,8 @@ model User {
 model Pet {
   id        Int       @id @default(autoincrement())
   name      String
+  // nombre en minúsculas y sin espacios en los extremos; garantiza unicidad por dueño
+  normalizedName String
   breed     String
   age       Int
   weight    Int
@@ -32,6 +34,8 @@ model Pet {
   ownerId   Int?
   logs      DailyLog[]
   alerts    Alert[]
+
+  @@unique([ownerId, normalizedName])
 }
 
 model DailyLog {
@@ -47,6 +51,9 @@ model DailyLog {
   mobility   Int
   notes      String
   images     String
+
+  // un solo registro por mascota y día (fecha "YYYY-MM-DD" en America/Bogota)
+  @@unique([petId, date])
 }
 
 model Alert {
@@ -54,7 +61,22 @@ model Alert {
   pet       Pet    @relation(fields: [petId], references: [id])
   petId     Int
   type      String
+  // explicación ("el porqué") basada en los registros
   message   String
+  // fecha ISO en que se detectó por primera vez
   date      String
   read      Boolean @default(false)
+  // métrica del registro diario afectada (appetite, energy, ...); null en alertas antiguas
+  metric         String?
+  // "precaucion" | "alerta"
+  level          String?
+  recommendation String?
+  // promedio habitual de la mascota en esa métrica al detectar el descenso
+  baseline       Float?
+  // "active" | "resolved"; solo puede haber una activa por mascota y métrica
+  status         String  @default("active")
+  updatedAt      String?
+  resolvedAt     String?
+
+  @@index([petId, metric, status])
 }

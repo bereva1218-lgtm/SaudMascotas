@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Pet } from "@/lib/types";
-import { getPets, createPet, updatePet, deletePet, requestPetRecommendation } from "@/lib/api";
+import { getPets, createPet, updatePet, deletePet, requestPetRecommendation, ApiError } from "@/lib/api";
+import { findDuplicatePetName, duplicatePetNameMessage } from "@/lib/validation";
 import PetCard from "@/components/PetCard";
 import StatusBadge from "@/components/StatusBadge";
 import { Card } from "@/components/ui/card";
@@ -109,13 +110,20 @@ const PetsPage = () => {
   };
 
 
+  const newPetDuplicate = newPet.name.trim() ? findDuplicatePetName(pets, newPet.name) : undefined;
+  const editPetDuplicate = editPet?.name.trim() ? findDuplicatePetName(pets, editPet.name, editPet.id) : undefined;
+
   const handleAddPet = () => {
-    if (!newPet.name || !newPet.breed) {
+    if (!newPet.name.trim() || !newPet.breed.trim()) {
       toast.error("Nombre y raza son obligatorios");
       return;
     }
+    if (newPetDuplicate) {
+      toast.error(duplicatePetNameMessage(newPetDuplicate.name));
+      return;
+    }
     const petData = {
-      name: newPet.name,
+      name: newPet.name.trim(),
       breed: newPet.breed,
       age: Number(newPet.age) || 0,
       weight: Number(newPet.weight) || 0,
@@ -128,14 +136,15 @@ const PetsPage = () => {
         const normalized = { ...created, condition: created.condition || undefined };
         setPets((prev) => [...prev, normalized]);
         toast.success(`${created.name} agregado exitosamente`);
+        setNewPet({ name: "", breed: "", age: "", weight: "", condition: "", avatar: "" });
+        setImagePreview("");
+        setDialogOpen(false);
       })
       .catch((e) => {
         console.error("failed to save pet", e);
-        toast.error("Falló al agregar mascota");
+        // 409 = nombre repetido: se deja el formulario abierto para corregirlo
+        toast.error(e instanceof ApiError && e.status === 409 ? e.message : "Falló al agregar mascota");
       });
-    setNewPet({ name: "", breed: "", age: "", weight: "", condition: "", avatar: "" });
-    setImagePreview("");
-    setDialogOpen(false);
   };
 
   useEffect(() => {
@@ -151,13 +160,17 @@ const PetsPage = () => {
 
   const handleSavePet = () => {
     if (!editPet) return;
-    if (!editPet.name || !editPet.breed) {
+    if (!editPet.name.trim() || !editPet.breed.trim()) {
       toast.error("Nombre y raza son obligatorios");
+      return;
+    }
+    if (editPetDuplicate) {
+      toast.error(duplicatePetNameMessage(editPetDuplicate.name));
       return;
     }
 
     const patch = {
-      name: String(editPet.name),
+      name: editPet.name.trim(),
       breed: String(editPet.breed),
       age: Number(editPet.age) || 0,
       weight: Number(editPet.weight) || 0,
@@ -176,7 +189,7 @@ const PetsPage = () => {
       })
       .catch((e) => {
         console.error("failed to update pet", e);
-        toast.error("No se pudo actualizar la mascota");
+        toast.error(e instanceof ApiError && e.status === 409 ? e.message : "No se pudo actualizar la mascota");
       });
   };
 
@@ -260,7 +273,16 @@ const PetsPage = () => {
                 </div>
                 <div>
                   <Label>Nombre *</Label>
-                  <Input value={newPet.name} onChange={(e) => setNewPet((p) => ({ ...p, name: e.target.value }))} placeholder="Ej: Rocky" />
+                  <Input
+                    value={newPet.name}
+                    onChange={(e) => setNewPet((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="Ej: Rocky"
+                    aria-invalid={!!newPetDuplicate}
+                    className={newPetDuplicate ? "border-destructive focus-visible:ring-destructive" : undefined}
+                  />
+                  {newPetDuplicate && (
+                    <p className="text-xs text-destructive mt-1">{duplicatePetNameMessage(newPetDuplicate.name)}</p>
+                  )}
                 </div>
                 <div>
                   <Label>Raza *</Label>
@@ -394,7 +416,12 @@ const PetsPage = () => {
                 value={editPet?.name ?? ""}
                 onChange={(e) => editPet && setEditPet({ ...editPet, name: e.target.value })}
                 placeholder="Ej: Rocky"
+                aria-invalid={!!editPetDuplicate}
+                className={editPetDuplicate ? "border-destructive focus-visible:ring-destructive" : undefined}
               />
+              {editPetDuplicate && (
+                <p className="text-xs text-destructive mt-1">{duplicatePetNameMessage(editPetDuplicate.name)}</p>
+              )}
             </div>
             <div>
               <Label>Raza *</Label>

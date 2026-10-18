@@ -27,15 +27,46 @@ export interface DailyLog {
   images: string[];
 }
 
+export type AlertLevel = "precaucion" | "alerta";
+
 export interface Alert {
   id: string;
   petId: string;
   petName: string;
   type: "informative" | "preventive" | "urgent";
+  // explicación basada en los registros
   message: string;
+  // fecha ISO en que se detectó
   date: string;
   read: boolean;
+  // métrica afectada (appetite, energy, ...); null en alertas antiguas
+  metric?: keyof typeof METRIC_ICONS | null;
+  level?: AlertLevel | null;
+  recommendation?: string | null;
+  baseline?: number | null;
+  status?: "active" | "resolved";
+  updatedAt?: string | null;
+  resolvedAt?: string | null;
 }
+
+export const ALERT_LEVEL_LABELS: Record<AlertLevel, string> = {
+  precaucion: "Precaución",
+  alerta: "Alerta",
+};
+
+// Recordatorio para el dueño (por ahora: registro diario pendiente)
+export interface Reminder {
+  id: string;
+  type: "daily_log";
+  petId: string;
+  petName: string;
+  title: string;
+  message: string;
+  dueDate: string;
+  priority: "normal" | "high";
+}
+
+export const ALERT_DISCLAIMER = "Sugerencia informativa; no reemplaza el diagnóstico de un veterinario.";
 
 export interface User {
   id: string;

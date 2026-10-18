@@ -16,9 +16,8 @@ COPY prisma ./prisma
 COPY tsconfig.json ./
 COPY src ./src
 
-# Generate Prisma client and push schema (creates SQLite DB if needed)
+# Generate Prisma client (migrations are applied at container start)
 RUN npx prisma generate
-RUN npx prisma db push
 
 # Build TypeScript
 RUN npm run build
@@ -37,5 +36,7 @@ COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 4000
 ENV PORT=4000
+ENV DATABASE_URL=file:./dev.db
 
-CMD ["node", "dist/index.js"]
+# Apply pending migrations (creates the SQLite DB if needed) before starting
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]

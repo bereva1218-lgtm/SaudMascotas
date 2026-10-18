@@ -22,7 +22,7 @@ const RegisterPage = () => {
       // after registration, log in automatically via auth context
       await login(email, password);
       toast.success("Usuario creado y autenticado");
-      navigate("/");
+      navigate("/dashboard");
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "Error al registrar");

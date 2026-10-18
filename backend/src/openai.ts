@@ -120,3 +120,103 @@ export async function generatePetRecommendation(
     throw error;
   }
 }
+
+export interface PetInfo {
+  id: number;
+  name: string;
+  breed: string;
+  age: number;
+  weight: number;
+  condition?: string | null;
+  status: string;
+  latestLog?: {
+    date: string;
+    appetite: number;
+    energy: number;
+    mood: number;
+    waterIntake: number;
+    sleep: number;
+    mobility: number;
+    notes: string;
+  };
+}
+
+export interface ChatRequest {
+  message: string;
+  pets: PetInfo[];
+}
+
+export interface ChatResponse {
+  response: string;
+}
+
+export async function generateChatResponse(request: ChatRequest): Promise<ChatResponse> {
+  ensureOpenAiKey();
+
+  // Build pets information context
+  const petsContext = request.pets.map((pet) => {
+    const petLines = [
+      `**${pet.name}** (${pet.breed})`,
+      `- Edad: ${pet.age} años`,
+      `- Peso: ${pet.weight} kg`,
+      `- Estado: ${pet.status}`,
+      `- Condición: ${pet.condition || "Sin condición registrada"}`,
+    ];
+
+    if (pet.latestLog) {
+      petLines.push(
+        `- Último registro (${pet.latestLog.date}): Apetito: ${pet.latestLog.appetite}/10, Energía: ${pet.latestLog.energy}/10, Ánimo: ${pet.latestLog.mood}/10, Agua: ${pet.latestLog.waterIntake}L, Sueño: ${pet.latestLog.sleep}h, Movilidad: ${pet.latestLog.mobility}/10`
+      );
+      if (pet.latestLog.notes) {
+        petLines.push(`- Notas: ${pet.latestLog.notes}`);
+      }
+    }
+
+    return petLines.join("\n");
+  });
+
+  const petsContextStr =
+    petsContext.length > 0
+      ? `Información de las mascotas del usuario:\n${petsContext.join("\n\n")}`
+      : "El usuario no tiene mascotas registradas.";
+
+  const systemPrompt = `Eres un asistente veterinario experto y amable especializado en cuidado de mascotas. 
+Tu rol es:
+1. Responder preguntas específicas sobre las mascotas del usuario basándote en la información de salud que proporcionan
+2. Proporcionar asesoramiento general sobre cuidado animal, nutrición, comportamiento y salud
+3. Ser empático y comprensivo con los dueños de mascotas
+4. Dar respuestas claras y prácticas en español
+5. Si necesitas más información específica sobre una mascota, pregunta al usuario
+
+${petsContextStr}
+
+Responde de manera natural y conversacional, evitando texto en formato JSON.`;
+
+  try {
+    const result = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: request.message,
+        },
+      ],
+      temperature: 0.7,
+    });
+
+    const response = (result.choices[0]?.message?.content || "").trim();
+
+    if (!response) {
+      throw new Error("No response from OpenAI");
+    }
+
+    return { response };
+  } catch (error) {
+    console.error("[AI] Error al generar respuesta de chat:", error);
+    throw error;
+  }
+}

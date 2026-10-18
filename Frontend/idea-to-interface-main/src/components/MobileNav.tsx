@@ -5,7 +5,7 @@ import { useUserRole, ROLE_CONFIG, UserRole } from "@/lib/UserRoleContext";
 import { useAuth } from "@/lib/auth";
 
 const NAV_ITEMS = [
-  { to: "/", icon: LayoutDashboard, label: "Inicio" },
+  { to: "/dashboard", icon: LayoutDashboard, label: "Inicio" },
   { to: "/registro", icon: ClipboardList, label: "Registro" },
   { to: "/alertas", icon: Bell, label: "Alertas" },
   { to: "/reportes", icon: FileText, label: "Reportes" },

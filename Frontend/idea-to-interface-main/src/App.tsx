@@ -11,6 +11,7 @@ import ReportsPage from "./pages/ReportsPage";
 import PetsPage from "./pages/PetsPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import LandingPage from "./pages/LandingPage";
 import NotFound from "./pages/NotFound";
 import { UserRoleProvider } from "./lib/UserRoleContext";
 import { AuthProvider } from "./lib/auth";
@@ -25,8 +26,9 @@ const App = () => (
       <AuthProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route
@@ -36,7 +38,7 @@ const App = () => (
               </RequireAuth>
             }
           >
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/registro" element={<DailyLogPage />} />
             <Route path="/alertas" element={<AlertsPage />} />
             <Route path="/reportes" element={<ReportsPage />} />
